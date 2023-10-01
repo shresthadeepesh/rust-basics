@@ -1,18 +1,42 @@
 use crate::models::post::Post;
+use std::io;
 
 pub mod models;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Hello, world!");
+    println!("Welcome to blog app...");
 
-    // let posts = Post::get_posts().await?;
+    let mut post_id = String::new();
+    let mut cont = String::new();
+    loop {
+        println!("Please enter a postId: ");
 
-    // println!("{:#?}", posts);
+        io::stdin()
+            .read_line(&mut post_id)
+            .expect("Failed to read line.");
 
-    let post = Post::get_post(1, true).await?;
+        let post_id: u32 = match post_id.trim().parse() {
+            Ok(post_id) => post_id,
+            Err(_) => continue,
+        };
 
-    println!("{:#?}", post);
+        println!("Fetching post of id: {post_id}");
+
+        let post = Post::get_post(post_id, true).await;
+
+        println!("{:#?}", post);
+
+        println!("Do you want to continue? (y/n)");
+
+        io::stdin()
+            .read_line(&mut cont)
+            .expect("Failed to read line.");
+
+        if cont.trim() != "y" {
+            break;
+        }
+    }
 
     Ok(())
 }

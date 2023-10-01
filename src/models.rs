@@ -1,6 +1,8 @@
 pub mod post;
 pub mod user;
 
+const BASE_URL: &str = "https://jsonplaceholder.typicode.com";
+
 pub enum Endpoints {
     GetPosts,
     GetPost(u32),
@@ -11,14 +13,12 @@ pub enum Endpoints {
 
 impl Endpoints {
     pub fn base_url(endpoints: Endpoints) -> String {
-        let base_url = String::from("https://jsonplaceholder.typicode.com");
-
         match endpoints {
-            Endpoints::GetPosts => base_url + "/posts/",
-            Endpoints::GetPost(id) => format!("{base_url}/posts/{id}"),
-            Endpoints::GetUsers => base_url + "/users/",
-            Endpoints::GetUser(id) => format!("{base_url}/users/{id}"),
-            Endpoints::GetTodos => base_url + "/todos/",
+            Endpoints::GetPosts => format!("{BASE_URL}/posts"),
+            Endpoints::GetPost(id) => format!("{BASE_URL}/posts/{id}"),
+            Endpoints::GetUsers => format!("{BASE_URL}/users/"),
+            Endpoints::GetUser(id) => format!("{BASE_URL}/users/{id}"),
+            Endpoints::GetTodos => format!("{BASE_URL}/todos/"),
         }
     }
 }
