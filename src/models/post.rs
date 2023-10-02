@@ -5,14 +5,24 @@ use super::Endpoints;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Post {
-    id: u32,
-    title: String,
-    body: String,
-    userId: u32,
-    user: Option<User>,
+    pub id: u32,
+    pub title: String,
+    pub body: String,
+    pub userId: u32,
+    pub user: Option<User>,
 }
 
 impl Post {
+    pub fn new(id: u32, title: String, body: String, userId: u32, user: Option<User>) -> Self {
+        Post {
+            id,
+            title,
+            body,
+            userId,
+            user,
+        }
+    }
+
     pub async fn get_posts() -> Result<Vec<Post>, Box<dyn std::error::Error>> {
         let posts = reqwest::get(Endpoints::base_url(Endpoints::GetPosts))
             .await?

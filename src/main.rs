@@ -70,6 +70,22 @@ async fn handle_connection(mut stream: TcpStream) {
                     "application/json"
                 )
             }
+            r if r.starts_with("POST /posts HTTP/1.1") => {
+                let post = Post {
+                    id: 101,
+                    title: String::from("Github rust blog."),
+                    body: String::from("Github rust blog."),
+                    userId: 1,
+                    user: None,
+                };
+
+                let contents = serde_json::to_string(&post).unwrap();
+                let length = contents.len();
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
+                    "application/json"
+                )
+            }
             _ => {
                 let message = "Not Found";
                 let length = message.len();
