@@ -3,7 +3,7 @@ use tokio::{io::AsyncReadExt, io::AsyncWriteExt, net::TcpListener};
 
 use crate::models::post::Post;
 use std::error::Error;
-use std::io;
+use std::{fs, io};
 
 pub mod models;
 
@@ -47,14 +47,14 @@ async fn handle_connection(mut stream: TcpStream) {
                 )
             }
             r if r.starts_with("GET / HTTP/1.1") => {
-                let message = "Hello World!";
-                let length = message.len();
+                let contents = fs::read_to_string("views/index.html").unwrap();
+                let length = contents.len();
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{message}",
+                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
                     "text/html"
                 )
             }
-            r if r.starts_with("GET /posts HTTP/1.1") => {
+            r if r.starts_with("GET /api/posts HTTP/1.1") => {
                 let posts = Post::get_posts().await.unwrap();
 
                 let contents = serde_json::to_string(&posts).unwrap();
@@ -64,7 +64,7 @@ async fn handle_connection(mut stream: TcpStream) {
                     "application/json"
                 )
             }
-            r if r.starts_with("GET /posts/1 HTTP/1.1") => {
+            r if r.starts_with("GET /api/posts/1 HTTP/1.1") => {
                 let posts = Post::get_post(1, false).await.unwrap();
 
                 let contents = serde_json::to_string(&posts).unwrap();
@@ -74,7 +74,7 @@ async fn handle_connection(mut stream: TcpStream) {
                     "application/json"
                 )
             }
-            r if r.starts_with("POST /posts HTTP/1.1") => {
+            r if r.starts_with("POST /api/posts HTTP/1.1") => {
                 let post = Post {
                     id: 101,
                     title: String::from("Github rust blog."),
@@ -91,10 +91,10 @@ async fn handle_connection(mut stream: TcpStream) {
                 )
             }
             _ => {
-                let message = "Not Found";
-                let length = message.len();
+                let contents = fs::read_to_string("views/404.html").unwrap();
+                let length = contents.len();
                 format!(
-                    "HTTP/1.1 404 NOT FOUND\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{message}",
+                    "HTTP/1.1 404 NOT FOUND\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
                     "text/html")
             }
         };
