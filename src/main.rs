@@ -33,6 +33,10 @@ async fn handle_connection(mut stream: TcpStream) {
 
         let request = String::from_utf8_lossy(&buf[0..n]);
 
+        if let Some(first_line) = request.lines().next() {
+            println!("{}", first_line);
+        }
+
         let response = match &request {
             r if r.starts_with("GET /ping HTTP/1.1") => {
                 let message = "Pong";
