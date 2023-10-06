@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate dotenv;
 
 use dotenv::dotenv;
@@ -22,6 +23,10 @@ pub mod services;
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     env_logger::init();
+
+    let log_stat = env::var("BASE_URL");
+
+    info!("{}", log_stat.unwrap());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     let listener = TcpListener::bind(addr).await?;
