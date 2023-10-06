@@ -1,26 +1,37 @@
-use tokio::net::TcpStream;
-use tokio::{io::AsyncReadExt, io::AsyncWriteExt, net::TcpListener};
-
 use crate::models::post::Post;
+use crate::services::post_service::poll;
+use log::{error, info};
+use rusqlite::Connection;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::{fs, io};
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use tokio::{io::AsyncReadExt, io::AsyncWriteExt, net::TcpListener};
 
 pub mod models;
+pub mod services;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     let listener = TcpListener::bind(addr).await?;
-    println!("Server listeneing on port: 8080");
+    info!("Server listeneing on port: 8080");
+
+    let connection = Connection::open("db.sqlite")?;
+
+    let db_connection = Arc::new(Mutex::new(connection));
 
     loop {
         let (socket, _) = listener.accept().await?;
-        tokio::spawn(handle_connection(socket));
+        tokio::spawn(handle_connection(socket, db_connection.clone()));
     }
 }
 
-async fn handle_connection(mut stream: TcpStream) {
+async fn handle_connection(mut stream: TcpStream, connection: Arc<Mutex<Connection>>) {
     let mut buf = vec![0; 1024];
 
     loop {
@@ -36,7 +47,7 @@ async fn handle_connection(mut stream: TcpStream) {
         let request = String::from_utf8_lossy(&buf[0..n]);
 
         if let Some(first_line) = request.lines().next() {
-            println!("{}", first_line);
+            info!("{}", first_line);
         }
 
         let response = match &request {
@@ -70,6 +81,22 @@ async fn handle_connection(mut stream: TcpStream) {
                 let posts = Post::get_post(1, false).await.unwrap();
 
                 let contents = serde_json::to_string(&posts).unwrap();
+                let length = contents.len();
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
+                    "application/json"
+                )
+            }
+            r if r.starts_with("POST /api/posts/poll HTTP/1.1") => {
+                let t = poll(connection.clone()).await;
+
+                let message = r#"
+                    {
+                        message: "Polling completed."
+                    }
+                "#;
+
+                let contents = serde_json::to_string(message).unwrap();
                 let length = contents.len();
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
