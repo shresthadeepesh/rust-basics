@@ -1,5 +1,5 @@
 use crate::models::post::Post;
-use crate::services::post_service::poll;
+use crate::services::post_service::{self, poll};
 use log::{error, info};
 use rusqlite::Connection;
 use std::error::Error;
@@ -65,6 +65,16 @@ async fn handle_connection(mut stream: TcpStream, connection: Arc<Mutex<Connecti
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
                     "text/html"
+                )
+            }
+            r if r.starts_with("GET /api/posts/db HTTP/1.1") => {
+                let posts = post_service::get_posts(connection.clone()).await;
+
+                let contents = serde_json::to_string(&posts.unwrap()).unwrap();
+                let length = contents.len();
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
+                    "application/json"
                 )
             }
             r if r.starts_with("GET /api/posts HTTP/1.1") => {

@@ -67,3 +67,28 @@ pub async fn poll(
 
     Ok(posts)
 }
+
+pub async fn get_posts(
+    db_connection: Arc<Mutex<Connection>>,
+) -> Result<Vec<Post>, Box<dyn std::error::Error>> {
+    let connection = db_connection.lock().await;
+
+    info!("Pulling posts from the database...");
+    let mut prepare = connection.prepare("SELECT * from posts")?;
+    let posts: Result<Vec<Post>, _> = prepare
+        .query_map((), |row| {
+            Ok(Post {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                body: row.get(2)?,
+                userId: row.get(3)?,
+                user: None,
+            })
+        })
+        .unwrap()
+        .collect();
+
+    info!("Posts pulled successfully.");
+
+    Ok(posts.unwrap())
+}
