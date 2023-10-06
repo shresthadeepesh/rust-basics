@@ -1,3 +1,8 @@
+extern crate dotenv;
+
+use dotenv::dotenv;
+use std::env;
+
 use crate::models::post::Post;
 use crate::services::post_service::{self, poll};
 use log::{error, info};
@@ -15,6 +20,7 @@ pub mod services;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
     env_logger::init();
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
