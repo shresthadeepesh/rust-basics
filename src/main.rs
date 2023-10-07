@@ -1,98 +1,30 @@
 extern crate dotenv;
 
+use crate::router::{
+    get_db_posts, get_posts, handle_hello, handle_not_found, handle_ping, poll_posts,
+};
 use dotenv::dotenv;
 use hyper::service::{make_service_fn, service_fn};
-use std::convert::Infallible;
-use std::env;
-
-use crate::models::post::Post;
-use crate::services::post_service::{self, poll};
+use hyper::{Body, Request, Response, Server};
 use log::info;
 use rusqlite::Connection;
+use std::convert::Infallible;
+use std::env;
 use std::error::Error;
-use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use hyper::{Body, Request, Response, Server};
-
 pub mod models;
+pub mod router;
 pub mod services;
-
-async fn handle_hello(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let contents = fs::read_to_string("views/index.html").unwrap();
-    let response = Response::new(Body::from(contents));
-    Ok(response)
-}
-
-async fn handle_ping(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let response_body = "Pong";
-    let response = Response::new(Body::from(response_body));
-    Ok(response)
-}
-
-async fn handle_not_found(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let response_body = "404 Not Found";
-    let response = Response::builder()
-        .status(404)
-        .body(Body::from(response_body))
-        .unwrap();
-    Ok(response)
-}
-
-async fn get_db_posts(
-    req: Request<Body>,
-    connection: Arc<Mutex<Connection>>,
-) -> Result<Response<Body>, Infallible> {
-    let posts = post_service::get_posts(connection.clone()).await;
-
-    let contents = serde_json::to_string(&posts.unwrap()).unwrap();
-    let response = Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(Body::from(contents))
-        .unwrap();
-    Ok(response)
-}
-
-async fn get_posts(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let posts = Post::get_posts().await;
-
-    let contents = serde_json::to_string(&posts.unwrap()).unwrap();
-    let response = Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(Body::from(contents))
-        .unwrap();
-    Ok(response)
-}
-
-async fn poll_posts(
-    req: Request<Body>,
-    connection: Arc<Mutex<Connection>>,
-) -> Result<Response<Body>, Infallible> {
-    let t = poll(connection.clone()).await;
-
-    let message = r#"
-                    {
-                        message: "Polling completed."
-                    }
-                "#;
-
-    let contents = serde_json::to_string(message).unwrap();
-    let response = Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(Body::from(contents))
-        .unwrap();
-    Ok(response)
-}
 
 async fn router(
     req: Request<Body>,
     connection: Arc<Mutex<Connection>>,
 ) -> Result<Response<Body>, Infallible> {
+    info!("[{}] {}", req.method(), req.uri().path());
+
     match (req.method(), req.uri().path()) {
         (&hyper::Method::GET, "/") => handle_hello(req).await,
         (&hyper::Method::GET, "/ping") => handle_ping(req).await,
@@ -125,6 +57,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+
+    info!("Server running at port: {}", addr.port());
 
     let server = Server::bind(&addr).serve(make_svc);
     server.await?;
