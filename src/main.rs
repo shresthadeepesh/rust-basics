@@ -1,7 +1,8 @@
 extern crate dotenv;
 
 use crate::router::{
-    get_db_posts, get_posts, handle_hello, handle_not_found, handle_ping, poll_posts,
+    create_post, get_db_posts, get_post, get_posts, handle_hello, handle_not_found, handle_ping,
+    poll_posts,
 };
 use dotenv::dotenv;
 use hyper::service::{make_service_fn, service_fn};
@@ -30,6 +31,10 @@ async fn router(
         (&hyper::Method::GET, "/ping") => handle_ping(req).await,
         (&hyper::Method::GET, "/api/posts/db") => get_db_posts(req, connection).await,
         (&hyper::Method::GET, "/api/posts") => get_posts(req).await,
+        (&hyper::Method::POST, "/api/posts") => create_post(req, connection).await,
+        (&hyper::Method::GET, path) if path.starts_with("/api/posts/") => {
+            get_post(req, connection).await
+        }
         (&hyper::Method::POST, "/api/posts/poll") => poll_posts(req, connection).await,
         _ => handle_not_found(req).await,
     }
