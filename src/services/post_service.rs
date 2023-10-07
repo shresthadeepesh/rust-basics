@@ -1,7 +1,7 @@
 use crate::models::post::Post;
 use log::info;
-use rusqlite::Connection;
-use std::sync::Arc;
+use rusqlite::{params, Connection, Params};
+use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
 pub async fn poll(
@@ -91,4 +91,45 @@ pub async fn get_posts(
     info!("Posts pulled successfully.");
 
     Ok(posts.unwrap())
+}
+
+pub async fn get_post(
+    db_connection: Arc<Mutex<Connection>>,
+    post_id: u32,
+) -> Result<Post, Box<dyn std::error::Error>> {
+    let connection = db_connection.lock().await;
+
+    info!("Pulling posts from the database...");
+    let mut prepare = connection.prepare("SELECT * from posts WHERE id = ?1")?;
+    let post: Result<Post, rusqlite::Error> = prepare.query_row(params![post_id], |row| {
+        Ok(Post {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            body: row.get(2)?,
+            userId: row.get(3)?,
+            user: None,
+        })
+    });
+
+    info!("Posts pulled successfully.");
+
+    Ok(post.unwrap())
+}
+
+pub async fn create_post(
+    db_connection: Arc<Mutex<Connection>>,
+    post: Post,
+) -> Result<Post, Box<dyn std::error::Error>> {
+    let connection = db_connection.lock().await;
+
+    info!("Inserting post into the database....");
+    let query = "INSERT INTO posts(title, body, userId) VALUES(?1, ?2, ?3);";
+
+    let mut stmt = connection.prepare(query).unwrap();
+    stmt.execute(params![post.title, post.body, post.userId])
+        .unwrap();
+
+    info!("Insertion completed.");
+
+    Ok(post)
 }

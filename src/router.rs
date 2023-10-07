@@ -1,7 +1,8 @@
 use crate::models::post::Post;
 use crate::services::post_service::{self, poll};
 use hyper::{Body, Request, Response};
-use rusqlite::Connection;
+use log::{debug, info};
+use rusqlite::{params, Connection};
 use std::convert::Infallible;
 use std::fs;
 use std::sync::Arc;
@@ -65,6 +66,75 @@ pub async fn get_posts(req: Request<Body>) -> Result<Response<Body>, Infallible>
         .header("Content-Type", "application/json")
         .body(Body::from(contents))
         .unwrap();
+    Ok(response)
+}
+
+pub async fn get_post(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    let path = req.uri().path();
+    let path_segments: Vec<&str> = path.split('/').collect();
+
+    if path_segments.len() >= 3 {
+        if let Ok(post_id) = u32::from_str_radix(path_segments[3], 10) {
+            debug!("{}", post_id);
+            let post = Post::get_post(post_id, false).await;
+
+            match post {
+                Ok(post) => {
+                    let contents = serde_json::to_string(&post).unwrap();
+                    let response = Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(contents))
+                        .unwrap();
+                    return Ok(response);
+                }
+                Error => {
+                    let message = r#"{"message": "Not found."}"#;
+                    let response = Response::builder()
+                        .status(404)
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(message))
+                        .unwrap();
+                    return Ok(response);
+                }
+            }
+        }
+    }
+
+    let message = r#"{"message": "Not found."}"#;
+    let response = Response::builder()
+        .status(404)
+        .header("Content-Type", "application/json")
+        .body(Body::from(message))
+        .unwrap();
+
+    Ok(response)
+}
+
+pub async fn create_post(
+    req: Request<Body>,
+    db_connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    info!("Creating post....");
+
+    let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
+    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+    let post: Post = serde_json::from_str(&body_str).unwrap();
+
+    let _ = post_service::create_post(db_connection, post);
+
+    let message = r#"{"message": "Post created successfully."}"#;
+
+    let response = Response::builder()
+        .status(201)
+        .header("Content-Type", "application/json")
+        .body(Body::from(message))
+        .unwrap();
+
     Ok(response)
 }
 
