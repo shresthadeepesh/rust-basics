@@ -1,23 +1,107 @@
-#[macro_use]
 extern crate dotenv;
 
 use dotenv::dotenv;
+use hyper::service::{make_service_fn, service_fn};
+use std::convert::Infallible;
 use std::env;
 
 use crate::models::post::Post;
 use crate::services::post_service::{self, poll};
-use log::{error, info};
+use log::info;
 use rusqlite::Connection;
 use std::error::Error;
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{fs, io};
-use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tokio::{io::AsyncReadExt, io::AsyncWriteExt, net::TcpListener};
+
+use hyper::{Body, Request, Response, Server};
 
 pub mod models;
 pub mod services;
+
+async fn handle_hello(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let contents = fs::read_to_string("views/index.html").unwrap();
+    let response = Response::new(Body::from(contents));
+    Ok(response)
+}
+
+async fn handle_ping(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let response_body = "Pong";
+    let response = Response::new(Body::from(response_body));
+    Ok(response)
+}
+
+async fn handle_not_found(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let response_body = "404 Not Found";
+    let response = Response::builder()
+        .status(404)
+        .body(Body::from(response_body))
+        .unwrap();
+    Ok(response)
+}
+
+async fn get_db_posts(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    let posts = post_service::get_posts(connection.clone()).await;
+
+    let contents = serde_json::to_string(&posts.unwrap()).unwrap();
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .body(Body::from(contents))
+        .unwrap();
+    Ok(response)
+}
+
+async fn get_posts(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let posts = Post::get_posts().await;
+
+    let contents = serde_json::to_string(&posts.unwrap()).unwrap();
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .body(Body::from(contents))
+        .unwrap();
+    Ok(response)
+}
+
+async fn poll_posts(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    let t = poll(connection.clone()).await;
+
+    let message = r#"
+                    {
+                        message: "Polling completed."
+                    }
+                "#;
+
+    let contents = serde_json::to_string(message).unwrap();
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .body(Body::from(contents))
+        .unwrap();
+    Ok(response)
+}
+
+async fn router(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    match (req.method(), req.uri().path()) {
+        (&hyper::Method::GET, "/") => handle_hello(req).await,
+        (&hyper::Method::GET, "/ping") => handle_ping(req).await,
+        (&hyper::Method::GET, "/api/posts/db") => get_db_posts(req, connection).await,
+        (&hyper::Method::GET, "/api/posts") => get_posts(req).await,
+        (&hyper::Method::POST, "/api/posts/poll") => poll_posts(req, connection).await,
+        _ => handle_not_found(req).await,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -28,165 +112,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("{}", log_stat.unwrap());
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    let listener = TcpListener::bind(addr).await?;
-    info!("Server listeneing on port: 8080");
+    let connection = Connection::open("db.sqlite").expect("Failed to connect to the database.");
 
-    let connection = Connection::open("db.sqlite")?;
-
+    let router = Arc::new(router);
     let db_connection = Arc::new(Mutex::new(connection));
 
-    loop {
-        let (socket, _) = listener.accept().await?;
-        tokio::spawn(handle_connection(socket, db_connection.clone()));
-    }
-}
+    let make_svc = make_service_fn(|_conn| {
+        let conn = db_connection.clone();
+        let router = router.clone();
+        let service = service_fn(move |req| router(req, conn.clone()));
+        async { Ok::<_, Infallible>(service) }
+    });
 
-async fn handle_connection(mut stream: TcpStream, connection: Arc<Mutex<Connection>>) {
-    let mut buf = vec![0; 1024];
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
-    loop {
-        let n = stream
-            .read(&mut buf)
-            .await
-            .expect("Failed to read data from socket.");
+    let server = Server::bind(&addr).serve(make_svc);
+    server.await?;
 
-        if n == 0 {
-            return;
-        }
-
-        let request = String::from_utf8_lossy(&buf[0..n]);
-
-        if let Some(first_line) = request.lines().next() {
-            info!("{}", first_line);
-        }
-
-        let response = match &request {
-            r if r.starts_with("GET /ping HTTP/1.1") => {
-                let message = "Pong";
-                let length = message.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{message}",
-                    "text/html"
-                )
-            }
-            r if r.starts_with("GET / HTTP/1.1") => {
-                let contents = fs::read_to_string("views/index.html").unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "text/html"
-                )
-            }
-            r if r.starts_with("GET /api/posts/db HTTP/1.1") => {
-                let posts = post_service::get_posts(connection.clone()).await;
-
-                let contents = serde_json::to_string(&posts.unwrap()).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "application/json"
-                )
-            }
-            r if r.starts_with("GET /api/posts HTTP/1.1") => {
-                let posts = Post::get_posts().await.unwrap();
-
-                let contents = serde_json::to_string(&posts).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "application/json"
-                )
-            }
-            r if r.starts_with("GET /api/posts/1 HTTP/1.1") => {
-                let posts = Post::get_post(1, false).await.unwrap();
-
-                let contents = serde_json::to_string(&posts).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "application/json"
-                )
-            }
-            r if r.starts_with("POST /api/posts/poll HTTP/1.1") => {
-                let t = poll(connection.clone()).await;
-
-                let message = r#"
-                    {
-                        message: "Polling completed."
-                    }
-                "#;
-
-                let contents = serde_json::to_string(message).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "application/json"
-                )
-            }
-            r if r.starts_with("POST /api/posts HTTP/1.1") => {
-                let post = Post {
-                    id: 101,
-                    title: String::from("Github rust blog."),
-                    body: String::from("Github rust blog."),
-                    userId: 1,
-                    user: None,
-                };
-
-                let contents = serde_json::to_string(&post).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "application/json"
-                )
-            }
-            _ => {
-                let contents = fs::read_to_string("views/404.html").unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.1 404 NOT FOUND\r\nContent-Length: {length}\r\nContent-Type:{}\r\n\n{contents}",
-                    "text/html")
-            }
-        };
-
-        stream
-            .write_all(response.as_bytes())
-            .await
-            .expect("Failed to write data to socket.");
-    }
-}
-
-async fn cli_blog_app() {
-    println!("Welcome to blog app...");
-
-    let mut post_id = String::new();
-    let mut cont = String::new();
-    loop {
-        println!("Please enter a postId: ");
-
-        io::stdin()
-            .read_line(&mut post_id)
-            .expect("Failed to read line.");
-
-        let post_id: u32 = match post_id.trim().parse() {
-            Ok(post_id) => post_id,
-            Err(_) => continue,
-        };
-
-        println!("Fetching post of id: {post_id}");
-
-        let post = Post::get_post(post_id, true).await;
-
-        println!("{:#?}", post);
-
-        println!("Do you want to continue? (y/n)");
-
-        io::stdin()
-            .read_line(&mut cont)
-            .expect("Failed to read line.");
-
-        if cont.trim() != "y" {
-            break;
-        }
-    }
+    Ok(())
 }
