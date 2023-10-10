@@ -1,31 +1,12 @@
 use crate::models::post::Post;
 use log::info;
-use rusqlite::{params, Connection, Params};
+use rusqlite::{params, Connection};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
-pub async fn poll(
-    db_connection: Arc<Mutex<Connection>>,
-) -> Result<Vec<Post>, Box<dyn std::error::Error>> {
+pub async fn poll(db_connection: Arc<Mutex<Connection>>) -> Result<Vec<Post>, Box<dyn Error>> {
     let mut connection = db_connection.lock().await;
     let posts = Post::get_posts().await?;
-
-    // let mut prepare = connection.prepare("SELECT * from posts")?;
-    // let test = prepare
-    //     .query_map((), |row| {
-    //         Ok(Post {
-    //             id: row.get(0)?,
-    //             title: row.get(1)?,
-    //             body: row.get(2)?,
-    //             userId: row.get(3)?,
-    //             user: None,
-    //         })
-    //     })
-    //     .unwrap();
-
-    // for p in test {
-    //     println!("{:?}", p.unwrap());
-    // }
 
     if posts.len() > 0 {
         let transaction = connection.transaction().unwrap();
@@ -68,9 +49,7 @@ pub async fn poll(
     Ok(posts)
 }
 
-pub async fn get_posts(
-    db_connection: Arc<Mutex<Connection>>,
-) -> Result<Vec<Post>, Box<dyn std::error::Error>> {
+pub async fn get_posts(db_connection: Arc<Mutex<Connection>>) -> Result<Vec<Post>, Box<dyn Error>> {
     let connection = db_connection.lock().await;
 
     info!("Pulling posts from the database...");
@@ -96,7 +75,7 @@ pub async fn get_posts(
 pub async fn get_post(
     db_connection: Arc<Mutex<Connection>>,
     post_id: u32,
-) -> Result<Post, Box<dyn std::error::Error>> {
+) -> Result<Post, Box<dyn Error>> {
     let connection = db_connection.lock().await;
 
     info!("Pulling posts from the database...");
@@ -119,7 +98,7 @@ pub async fn get_post(
 pub async fn create_post(
     db_connection: Arc<Mutex<Connection>>,
     post: Post,
-) -> Result<Post, Box<dyn std::error::Error>> {
+) -> Result<Post, Box<dyn Error>> {
     let connection = db_connection.lock().await;
 
     info!("Inserting post into the database....");
@@ -132,4 +111,62 @@ pub async fn create_post(
     info!("Insertion completed.");
 
     Ok(post)
+}
+
+pub async fn update_post(
+    db_connection: Arc<Mutex<Connection>>,
+    post: Post,
+) -> Result<Post, Box<dyn Error>> {
+    let connection = db_connection.lock().await;
+
+    let db_post = get_post(db_connection.clone(), post.id).await;
+
+    match db_post {
+        Ok(db_post) => {
+            info!("Updating post into the database....");
+            let query = "UPDATE posts SET title = ?1, body = ?2, userId = ?3 WHERE id = ?4;";
+
+            let mut stmt = connection.prepare(query).unwrap();
+            stmt.execute(params![post.title, post.body, post.userId, post.id])
+                .unwrap();
+
+            info!("Update completed.");
+
+            Ok(post)
+        }
+        Err(e) => {
+            info!("Failed to update post, post not found.");
+            Err(e)
+        }
+    }
+}
+
+pub async fn delete_post(
+    db_connection: Arc<Mutex<Connection>>,
+    post_id: u32,
+) -> Result<bool, Box<dyn Error>> {
+    let connection = db_connection.lock().await;
+
+    let db_post = get_post(db_connection.clone(), post_id).await;
+
+    match db_post {
+        Ok(db_post) => {
+            info!("Deleting post of id: {} from the database.", post_id);
+            let query = "DELETE FROM posts WHERE id = ?1";
+            let mut stmt = connection.prepare(query).unwrap();
+            let result = stmt.execute(params![post_id]).unwrap();
+
+            info!("Post has been deleted.");
+
+            if result > 0 {
+                return Ok(true);
+            }
+
+            Ok(false)
+        }
+        Err(e) => {
+            info!("Failed to update post, post not found.");
+            Err(e)
+        }
+    }
 }

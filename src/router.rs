@@ -2,7 +2,7 @@ use crate::models::post::Post;
 use crate::services::post_service::{self, poll};
 use hyper::{Body, Request, Response};
 use log::{debug, info};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use std::convert::Infallible;
 use std::fs;
 use std::sync::Arc;
@@ -73,35 +73,18 @@ pub async fn get_post(
     req: Request<Body>,
     connection: Arc<Mutex<Connection>>,
 ) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path();
-    let path_segments: Vec<&str> = path.split('/').collect();
+    let post_id = get_post_id(req);
 
-    if path_segments.len() >= 3 {
-        if let Ok(post_id) = u32::from_str_radix(path_segments[3], 10) {
-            debug!("{}", post_id);
-            let post = Post::get_post(post_id, false).await;
+    if post_id != 0 {
+        let post = Post::get_post(post_id, false).await.unwrap();
 
-            match post {
-                Ok(post) => {
-                    let contents = serde_json::to_string(&post).unwrap();
-                    let response = Response::builder()
-                        .status(200)
-                        .header("Content-Type", "application/json")
-                        .body(Body::from(contents))
-                        .unwrap();
-                    return Ok(response);
-                }
-                Error => {
-                    let message = r#"{"message": "Not found."}"#;
-                    let response = Response::builder()
-                        .status(404)
-                        .header("Content-Type", "application/json")
-                        .body(Body::from(message))
-                        .unwrap();
-                    return Ok(response);
-                }
-            }
-        }
+        let contents = serde_json::to_string(&post).unwrap();
+        let response = Response::builder()
+            .status(200)
+            .header("Content-Type", "application/json")
+            .body(Body::from(contents))
+            .unwrap();
+        return Ok(response);
     }
 
     let message = r#"{"message": "Not found."}"#;
@@ -125,7 +108,7 @@ pub async fn create_post(
 
     let post: Post = serde_json::from_str(&body_str).unwrap();
 
-    let _ = post_service::create_post(db_connection, post);
+    let _ = post_service::create_post(db_connection, post).await;
 
     let message = r#"{"message": "Post created successfully."}"#;
 
@@ -157,4 +140,74 @@ pub async fn poll_posts(
         .body(Body::from(contents))
         .unwrap();
     Ok(response)
+}
+
+pub async fn delete_post(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    let post_id = get_post_id(req);
+
+    if post_id != 0 {
+        let post = post_service::delete_post(connection, post_id)
+            .await
+            .unwrap();
+
+        if post {
+            let message = r#"{"message": "Post has been deleted successfully."}"#;
+            let response = Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::from(message))
+                .unwrap();
+
+            return Ok(response);
+        }
+    }
+
+    let message = r#"{"message": "Not found."}"#;
+    let response = Response::builder()
+        .status(404)
+        .header("Content-Type", "application/json")
+        .body(Body::from(message))
+        .unwrap();
+
+    Ok(response)
+}
+
+pub async fn update_post(
+    req: Request<Body>,
+    connection: Arc<Mutex<Connection>>,
+) -> Result<Response<Body>, Infallible> {
+    let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
+    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+    let post: Post = serde_json::from_str(&body_str).unwrap();
+
+    let _ = post_service::update_post(connection, post).await.unwrap();
+
+    let message = r#"{"message": "Post has been updated successfully."}"#;
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .body(Body::from(message))
+        .unwrap();
+
+    return Ok(response);
+}
+
+fn get_post_id(req: Request<Body>) -> u32 {
+    let path = req.uri().path();
+    let path_segments: Vec<&str> = path.split('/').collect();
+
+    if path_segments.len() >= 3 {
+        if let Ok(post_id) = u32::from_str_radix(path_segments[3], 10) {
+            debug!("{}", post_id);
+            return post_id;
+        }
+    }
+
+    info!("Cannot parse post_id from the url.");
+
+    0
 }
