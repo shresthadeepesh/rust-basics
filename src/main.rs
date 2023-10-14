@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         async { Ok::<_, Infallible>(service) }
     });
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
 
     info!("Server running at port: {}", addr.port());
 
