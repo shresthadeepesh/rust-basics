@@ -127,17 +127,13 @@ pub async fn poll_posts(
 ) -> Result<Response<Body>, Infallible> {
     let _ = poll(connection.clone()).await;
 
-    let message = r#"
-                    {
-                        message: "Polling completed."
-                    }
-                "#;
+    let message = r#"{"message": "Polling completed."}"#;
 
-    let contents = serde_json::to_string(message).unwrap();
+    // let contents = serde_json::to_string(message).unwrap();
     let response = Response::builder()
         .status(200)
         .header("Content-Type", "application/json")
-        .body(Body::from(contents))
+        .body(Body::from(message))
         .unwrap();
     Ok(response)
 }

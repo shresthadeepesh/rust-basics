@@ -14,6 +14,7 @@ use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::signal::ctrl_c;
 use tokio::sync::Mutex;
 
 pub mod models;
@@ -67,7 +68,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Server running at port: {}", addr.port());
 
-    let server = Server::bind(&addr).serve(make_svc);
+    let server = Server::bind(&addr)
+        .serve(make_svc)
+        .with_graceful_shutdown(async {
+            ctrl_c().await.expect("Failed to handle ctrl + c.");
+            info!("Shutting down the server, closing all connections.");
+        });
     server.await?;
 
     Ok(())
